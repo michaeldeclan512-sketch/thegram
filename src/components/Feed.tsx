@@ -1,73 +1,74 @@
-import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
+import { collection, query, orderBy, onSnapshot, limit } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import PostCard from './PostCard';
 import StoryStrip from './StoryStrip';
+import { Post, StoryGroup } from '../types';
+import { Loader2 } from 'lucide-react';
 
-const MOCK_POSTS = [
-  {
-    id: '1',
-    user: { 
-      id: 'u1', 
-      username: 'art_perspective', 
-      fullName: 'Art Journal', 
-      avatar: 'https://picsum.photos/seed/art/100',
-      isVerified: true 
-    },
-    imageUrl: 'https://picsum.photos/seed/painting/800/800',
-    caption: 'The beauty of light and shadow in morning strokes. 🎨✨ #art #morningvibe',
-    likes: 12435,
-    commentsCount: 84,
-    timestamp: '3 HOURS AGO',
-    isLiked: false
-  },
-  {
-    id: '2',
-    user: { 
-      id: 'u2', 
-      username: 'tech_insider', 
-      fullName: 'Tech Insider', 
-      avatar: 'https://picsum.photos/seed/tech/100' 
-    },
-    imageUrl: 'https://picsum.photos/seed/robot/800/800',
-    caption: 'Future is closer than you think. Neural interfaces are reaching a turning point in reliability. 🤖🛰️',
-    likes: 8521,
-    commentsCount: 142,
-    timestamp: '8 HOURS AGO',
-    isLiked: true
-  },
-  {
-    id: '3',
-    user: { 
-      id: 'u3', 
-      username: 'culinary_roads', 
-      fullName: 'Gourmet Travel', 
-      avatar: 'https://picsum.photos/seed/food/100',
-      isVerified: true
-    },
-    imageUrl: 'https://picsum.photos/seed/pasta/800/800',
-    caption: 'Authentic carbonara in Rome. No cream, just eggs, guanciale, and love. 🇮🇹🍝',
-    likes: 4567,
-    commentsCount: 32,
-    timestamp: '1 DAY AGO',
-    isLiked: false
-  }
-];
+interface FeedProps {
+  onOpenUpload: (type?: 'post' | 'story' | 'reel') => void;
+  onViewStories: (storyGroups: StoryGroup[], initialUserIndex: number) => void;
+  onViewProfile?: (userId: string) => void;
+}
 
-export default function Feed() {
+export default function Feed({ onOpenUpload, onViewStories, onViewProfile }: FeedProps) {
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'posts'),
+      orderBy('createdAt', 'desc'),
+      limit(20)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const postsData = snapshot.docs
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          timestamp: doc.data().createdAt?.toDate()?.toLocaleDateString() || 'Just now',
+        }))
+        .filter((post: any) => post.type !== 'reel') as Post[];
+      setPosts(postsData);
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
+
   return (
     <div className="pt-8 pb-20 max-w-[630px] mx-auto px-4">
-      <StoryStrip />
+      <StoryStrip 
+        onOpenUpload={onOpenUpload} 
+        onViewStories={onViewStories} 
+        onViewProfile={onViewProfile}
+      />
       
       <div className="flex flex-col gap-8 mt-4">
-        {MOCK_POSTS.map((post, index) => (
-          <motion.div
-            key={post.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-          >
-            <PostCard post={post} />
-          </motion.div>
-        ))}
+        {loading ? (
+          <div className="flex justify-center py-20">
+            <Loader2 className="animate-spin text-zinc-500" size={32} />
+          </div>
+        ) : posts.length === 0 ? (
+          <div className="text-center py-20 text-zinc-500">
+            <p className="text-lg font-bold">No posts yet</p>
+            <p className="text-sm">Start following people or upload your first photo!</p>
+          </div>
+        ) : (
+          posts.map((post, index) => (
+            <motion.div
+              key={`${post.id}-${index}`}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1 }}
+            >
+              <PostCard post={post} onViewProfile={onViewProfile} />
+            </motion.div>
+          ))
+        )}
       </div>
     </div>
   );

@@ -1,0 +1,105 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information and settings.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "fullName": { "type": "string" },
+        "avatar": { "type": "string" },
+        "bio": { "type": "string" },
+        "website": { "type": "string" },
+        "followersCount": { "type": "number" },
+        "followingCount": { "type": "number" },
+        "postsCount": { "type": "number" },
+        "isVerified": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "username", "fullName"]
+    },
+    "Post": {
+      "title": "Post",
+      "description": "User uploaded content.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "userAvatar": { "type": "string" },
+        "imageUrl": { "type": ["string", "null"] },
+        "videoUrl": { "type": ["string", "null"] },
+        "caption": { "type": "string" },
+        "likesCount": { "type": "number" },
+        "commentsCount": { "type": "number" },
+        "type": { "type": "string", "enum": ["image", "video", "reel"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "type"]
+    },
+    "Story": {
+      "title": "Story",
+      "description": "Temporary user content.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "userAvatar": { "type": "string" },
+        "mediaUrl": { "type": "string" },
+        "viewsCount": { "type": "number" },
+        "type": { "type": "string", "enum": ["image", "video"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "mediaUrl", "type"]
+    },
+    "StoryView": {
+      "title": "StoryView",
+      "description": "Record of a user viewing a story.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "userAvatar": { "type": "string" },
+        "viewedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "username"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Direct message between users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "chatId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "chatId", "senderId", "text"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Public and private user profiles."
+    },
+    "/posts/{postId}": {
+      "schema": "Post",
+      "description": "Main feed items and reels."
+    },
+    "/stories/{storyId}": {
+      "schema": "Story",
+      "description": "Stories visible for 24 hours."
+    },
+    "/stories/{storyId}/views/{viewId}": {
+      "schema": "StoryView",
+      "description": "Individual view records for a story."
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Direct messages within a chat."
+    }
+  }
+}

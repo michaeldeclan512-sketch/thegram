@@ -1,114 +1,350 @@
-import { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Heart, 
   MessageCircle, 
   Music2, 
   Send, 
-  Bookmark, 
   MoreHorizontal,
-  ChevronDown
+  ChevronDown,
+  Camera,
+  Loader2,
+  Volume2,
+  VolumeX,
+  Plus,
+  Play,
+  Pause,
+  ArrowLeft,
+  Search,
+  MoreVertical,
+  ThumbsUp
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
+import { collection, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
+import { db, handleFirestoreError } from '../lib/firebase';
 
-const MOCK_REELS = [
-  {
-    id: '1',
-    user: { username: 'scenic_shots', avatar: 'https://picsum.photos/seed/mountains/100' },
-    videoUrl: 'https://picsum.photos/seed/forest/1080/1920',
-    caption: 'Lost in the magic of the Pacific Northwest. 🌲⛰️',
-    likes: '1.2M',
-    comments: '4.5K',
-    audio: 'Original Audio - scenic_shots'
-  },
-  {
-    id: '2',
-    user: { username: 'city_vibes', avatar: 'https://picsum.photos/seed/city/100' },
-    videoUrl: 'https://picsum.photos/seed/tokyo/1080/1920',
-    caption: 'Tokyo nights hit different. 🗼✨',
-    likes: '850K',
-    comments: '1.2K',
-    audio: 'Lo-fi Beats - Chill Radio'
-  }
-];
+interface ReelsProps {
+  onOpenUpload: (type?: 'post' | 'story' | 'reel') => void;
+  onBack: () => void;
+  onViewProfile?: (userId: string) => void;
+}
 
-export default function Reels() {
-  const [currentIdx, setCurrentIdx] = useState(0);
+function ReelItem({ reel, isMuted, onToggleMute, onOpenUpload, isLast, onViewProfile }: { 
+  reel: any, 
+  isMuted: boolean, 
+  onToggleMute: () => void, 
+  onOpenUpload: (type?: 'post' | 'story' | 'reel') => void,
+  isLast: boolean,
+  onViewProfile?: (userId: string) => void,
+  key?: any
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [pulseIcon, setPulseIcon] = useState<'play' | 'pause' | null>(null);
+  const [progress, setProgress] = useState(0);
+
+  // Sync state with actual video playback
+  const onPlay = () => setIsPlaying(true);
+  const onPause = () => setIsPlaying(false);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            videoRef.current?.play().catch(console.error);
+          } else {
+            videoRef.current?.pause();
+          }
+        });
+      },
+      { threshold: 0.6 }
+    );
+
+    if (videoRef.current) {
+      observer.observe(videoRef.current);
+    }
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  const handleTimeUpdate = () => {
+    if (videoRef.current) {
+      const percentage = (videoRef.current.currentTime / videoRef.current.duration) * 100;
+      setProgress(percentage);
+    }
+  };
+
+  const togglePlay = (e?: React.MouseEvent | React.TouchEvent) => {
+    // If it's a bubble from a child that didn't stop propagation, it might fire twice
+    // But we want to catch it on the main div
+    if (e) e.stopPropagation();
+    if (!videoRef.current) return;
+    
+    if (!videoRef.current.paused) {
+      videoRef.current.pause();
+      setPulseIcon('pause');
+    } else {
+      videoRef.current.play().catch((err) => {
+        console.error("Playback failed:", err);
+      });
+      setPulseIcon('play');
+    }
+    
+    // Clear pulse after animation duration
+    setTimeout(() => setPulseIcon(null), 800);
+  };
 
   return (
-    <div className="h-full w-full flex items-center justify-center bg-black overflow-hidden relative">
-      <div className="absolute top-8 left-8 z-50 flex items-center gap-2 cursor-pointer">
-        <h1 className="text-xl font-bold">Reels</h1>
-        <ChevronDown size={20} />
+    <div 
+      className="relative h-screen w-full snap-start bg-black flex flex-col overflow-hidden select-none cursor-pointer"
+      onClick={togglePlay}
+    >
+      {/* 1. Video Layer */}
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        <video 
+          ref={videoRef}
+          src={reel.videoUrl} 
+          className="w-full h-full object-cover"
+          loop
+          muted={isMuted}
+          playsInline
+          onTimeUpdate={handleTimeUpdate}
+          onPlay={onPlay}
+          onPause={onPause}
+        />
       </div>
 
-      <AnimatePresence mode="wait">
-        <motion.div 
-          key={MOCK_REELS[currentIdx].id}
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 1.05 }}
-          className="relative h-[95vh] aspect-[9/16] bg-zinc-900 rounded-lg overflow-hidden flex flex-col group shadow-2xl border border-zinc-800"
+      {/* 2. UI Overlay Layer */}
+      <div className="absolute inset-x-0 bottom-0 top-0 pointer-events-none z-10">
+        
+        {/* Center Feedback - Persistent & Pulses */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <AnimatePresence mode="wait">
+            {pulseIcon && (
+              <motion.div
+                key={`pulse-${pulseIcon}`}
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1.1 }}
+                exit={{ opacity: 0, scale: 1.3 }}
+                transition={{ duration: 0.2 }}
+                className="bg-black/40 p-5 rounded-full backdrop-blur-md"
+              >
+                {pulseIcon === 'play' ? (
+                  <Play fill="white" size={32} className="ml-0.5 text-white" />
+                ) : (
+                  <Pause fill="white" size={32} className="text-white" />
+                )}
+              </motion.div>
+            )}
+
+            {!isPlaying && !pulseIcon && (
+              <motion.div
+                key="paused-button"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={{ duration: 0.2 }}
+                className="bg-black/30 p-5 rounded-full backdrop-blur-sm"
+              >
+                <Play fill="white" size={36} className="ml-1 text-white" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Volume - Positioned specifically */}
+        <button 
+          onClick={(e) => { e.stopPropagation(); onToggleMute(); }}
+          className="absolute top-20 right-4 pointer-events-auto p-2 bg-black/40 backdrop-blur-md rounded-full border border-white/10"
         >
-          {/* Simulated Video Content */}
-          <img 
-            src={MOCK_REELS[currentIdx].videoUrl} 
-            className="absolute inset-0 w-full h-full object-cover pointer-events-none opacity-80"
-            alt="Reel content"
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60 pointer-events-none" />
+          {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+        </button>
 
-          {/* Reel Content Overlay */}
-          <div className="mt-auto p-4 z-10 flex items-end justify-between">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-4">
-                <img src={MOCK_REELS[currentIdx].user.avatar} className="w-8 h-8 rounded-full border border-zinc-500" alt="User" />
-                <span className="font-bold text-sm">{MOCK_REELS[currentIdx].user.username}</span>
-                <button className="px-3 py-1 border border-white rounded-lg text-xs font-semibold hover:bg-white/10 transition-colors">Follow</button>
+        {/* Gradient Shadow */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/60" />
+
+        {/* Reel Content & Actions (Bottom) */}
+        <div className="absolute inset-x-0 bottom-0 p-4 pb-12 flex items-end justify-between gap-4">
+          
+          <div className="flex-1 pb-2 pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+            {/* Profile & Follow */}
+            <div className="flex items-center gap-3 mb-3">
+              <div 
+                className="cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => onViewProfile?.(reel.userId)}
+              >
+                <img 
+                  src={reel.userAvatar} 
+                  className="w-9 h-9 rounded-full border border-white/20 object-cover" 
+                  alt="User" 
+                  referrerPolicy="no-referrer"
+                />
               </div>
-              <p className="text-sm mb-3 line-clamp-2">{MOCK_REELS[currentIdx].caption}</p>
-              <div className="flex items-center gap-2 text-xs">
-                <Music2 size={14} />
-                <span>{MOCK_REELS[currentIdx].audio}</span>
-              </div>
+              <span 
+                className="font-bold text-sm cursor-pointer hover:text-white/80"
+                onClick={() => onViewProfile?.(reel.userId)}
+              >
+                @{reel.username}
+              </span>
+              <button 
+                className="px-4 py-1.5 bg-white text-black rounded-full text-xs font-bold hover:bg-zinc-200 transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Follow
+              </button>
             </div>
+            
+            {/* Caption */}
+            <p className="text-[13px] line-clamp-2 pr-4 mb-3 drop-shadow-sm leading-relaxed cursor-text">
+              {reel.caption || "Enjoy this reel!"}
+            </p>
 
-            {/* Side Actions */}
-            <div className="flex flex-col items-center gap-6 mb-2">
-               <div className="flex flex-col items-center gap-1 group">
-                 <button className="p-2 hover:bg-white/10 rounded-full transition-colors"><Heart size={28} className="group-hover:scale-110 transition-transform" /></button>
-                 <span className="text-xs font-semibold">{MOCK_REELS[currentIdx].likes}</span>
-               </div>
-               <div className="flex flex-col items-center gap-1 group">
-                 <button className="p-2 hover:bg-white/10 rounded-full transition-colors"><MessageCircle size={28} className="group-hover:scale-110 transition-transform" /></button>
-                 <span className="text-xs font-semibold">{MOCK_REELS[currentIdx].comments}</span>
-               </div>
-               <button className="p-2 hover:bg-white/10 rounded-full transition-colors"><Send size={26} /></button>
-               <button className="p-2 hover:bg-white/10 rounded-full transition-colors"><Bookmark size={26} /></button>
-               <button className="p-2 hover:bg-white/10 rounded-full transition-colors"><MoreHorizontal size={26} /></button>
-               <div className="w-8 h-8 rounded-md bg-zinc-800 border border-white/20 overflow-hidden">
-                 <img src="https://picsum.photos/seed/audio/50" className="w-full h-full object-cover" alt="Audio cover" />
-               </div>
+            {/* Audio */}
+            <div className="flex items-center gap-2 text-xs bg-black/20 backdrop-blur-sm w-fit px-3 py-1 rounded-full border border-white/5">
+              <Music2 size={12} className="animate-pulse" />
+              <span className="max-w-[120px] truncate">Original Audio • @{reel.username}</span>
             </div>
           </div>
-        </motion.div>
-      </AnimatePresence>
 
-      {/* Navigation arrows for demo */}
-      <div className="absolute right-12 flex flex-col gap-4">
+          {/* Side Column */}
+          <div className="flex flex-col items-center gap-4 mb-2 pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+             <motion.button 
+               whileHover={{ scale: 1.1 }}
+               whileTap={{ scale: 0.9 }}
+               onClick={(e) => { e.stopPropagation(); onOpenUpload('reel'); }}
+               className="w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 rounded-full flex items-center justify-center mb-1 group"
+             >
+                <Plus size={22} strokeWidth={3} className="text-white group-hover:rotate-90 transition-transform" />
+             </motion.button>
+
+             <div className="flex flex-col items-center gap-1">
+               <button onClick={(e) => e.stopPropagation()} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                 <ThumbsUp size={30} strokeWidth={1.5} className="drop-shadow-lg" />
+               </button>
+               <span className="text-[11px] font-bold">{reel.likesCount || '7.6k'}</span>
+             </div>
+
+             <div className="flex flex-col items-center gap-1">
+               <button onClick={(e) => e.stopPropagation()} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                 <MessageCircle size={30} strokeWidth={1.5} className="drop-shadow-lg" />
+               </button>
+               <span className="text-[11px] font-bold">{reel.commentsCount || '208'}</span>
+             </div>
+
+             <div className="flex flex-col items-center gap-1">
+               <button onClick={(e) => e.stopPropagation()} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                 <Send size={28} strokeWidth={1.5} className="drop-shadow-lg" />
+               </button>
+               <span className="text-[11px] font-bold">Share</span>
+             </div>
+
+             <div className="w-9 h-9 rounded-lg border-2 border-zinc-700 overflow-hidden mt-1 animate-[spin_4s_linear_infinite]">
+                <img 
+                  src={reel.userAvatar} 
+                  className="w-full h-full object-cover" 
+                  alt="Audio" 
+                  referrerPolicy="no-referrer"
+                />
+             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Red Progress Bar */}
+      <div className="absolute bottom-0 left-0 w-full h-[2px] bg-white/20 z-30">
+        <motion.div 
+          className="h-full bg-red-600" 
+          style={{ width: `${progress}%` }}
+          transition={{ type: 'spring', damping: 20, stiffness: 100 }}
+        />
+      </div>
+    </div>
+  );
+}
+
+export default function Reels({ onOpenUpload, onBack, onViewProfile }: ReelsProps) {
+  const [reels, setReels] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'posts'),
+      where('type', '==', 'reel'),
+      orderBy('createdAt', 'desc'),
+      limit(20)
+    );
+
+    const unsubscribe = onSnapshot(q, 
+      (snapshot) => {
+        setReels(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Reels fetch error:", error);
+        handleFirestoreError(error, 'list', 'posts');
+      }
+    );
+
+    return unsubscribe;
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-black">
+        <Loader2 className="animate-spin text-zinc-500" size={48} />
+      </div>
+    );
+  }
+
+  if (reels.length === 0) {
+    return (
+      <div className="h-full w-full flex flex-col items-center justify-center bg-black p-8 text-center">
+        <h2 className="text-2xl font-bold mb-4">No Reels yet</h2>
+        <p className="text-zinc-400 mb-8 max-w-xs">Be the first to share a moment with the community.</p>
         <button 
-          disabled={currentIdx === 0}
-          onClick={() => setCurrentIdx(prev => prev - 1)}
-          className="p-3 bg-zinc-800 rounded-full disabled:opacity-30 hover:bg-zinc-700 transition-colors"
+          onClick={() => onOpenUpload('reel')}
+          className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-full font-bold transition-all hover:scale-105 active:scale-95 shadow-xl"
         >
-          ↑
+          <Camera size={20} />
+          Create Reel
         </button>
-        <button 
-          disabled={currentIdx === MOCK_REELS.length - 1}
-          onClick={() => setCurrentIdx(prev => prev + 1)}
-          className="p-3 bg-zinc-800 rounded-full disabled:opacity-30 hover:bg-zinc-700 transition-colors"
-        >
-          ↓
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full w-full bg-black relative">
+      {/* Top Header Bar */}
+      <div className="absolute top-0 left-0 w-full p-4 z-[100] flex items-center justify-between pointer-events-auto">
+        <button onClick={onBack} className="p-2 hover:bg-black/20 rounded-full transition-colors drop-shadow-md">
+          <ArrowLeft size={24} />
         </button>
+        <div className="flex items-center gap-1">
+          <button className="p-2 hover:bg-black/20 rounded-full transition-colors drop-shadow-md">
+            <Search size={24} />
+          </button>
+          <button className="p-2 hover:bg-black/20 rounded-full transition-colors drop-shadow-md">
+            <MoreVertical size={24} />
+          </button>
+        </div>
+      </div>
+
+      {/* Vertical Scroll Container */}
+      <div className="h-full w-full overflow-y-scroll snap-y snap-mandatory no-scrollbar scroll-smooth">
+        {reels.map((reel, idx) => (
+          <ReelItem 
+            key={`${reel.id}-${idx}`} 
+            reel={reel} 
+            isMuted={isMuted} 
+            onToggleMute={() => setIsMuted(!isMuted)}
+            onOpenUpload={onOpenUpload}
+            onViewProfile={onViewProfile}
+            isLast={idx === reels.length - 1}
+          />
+        ))}
       </div>
     </div>
   );
